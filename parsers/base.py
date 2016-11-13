@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractproperty
+from abc import ABCMeta, abstractmethod, abstractproperty
 from datetime import date
 from functools import partial
 from logging import getLogger
@@ -35,6 +35,10 @@ class BaseParser(
 
     @abstractproperty
     def car_url(self):
+        pass
+
+    @abstractmethod
+    def get_car_ids(self, elements):
         pass
 
     @property
@@ -132,12 +136,31 @@ class BaseParser(
             parsed_ads
         )
 
-        ads = {x.get('data-ad-id') for x in filtered_ads}
+        ads = self.get_car_ids(filtered_ads)
 
         new_ads = ads - self.seen_ads
 
         if new_ads:
-            self.process_batch(new_ads)
-            self.seen_ads |= new_ads
+            self.seen_ads = new_ads
+            self.today_ads = new_ads
         else:
             logger.info('No new suitable ads')
+
+    def request(self):
+        try:
+            response = self.session.get(
+                self.search_url,
+            )
+
+            if response.status_code == 200:
+                self.parse_response(response)
+            else:
+                msg = '{name} has responsed with {code}'.format(
+                    name=self.search_name,
+                    code=str(response.status_code)
+                )
+                logger.debug(msg)
+
+        except IOError as e:
+            logger.exception(e)
+
