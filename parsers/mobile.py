@@ -9,7 +9,6 @@ class MobileDeParser(BaseParser):
     XPATHS = {
         'car_ads': '//div[@class="cBox-body cBox-body--resultitem"]/a',
         'power': 'div/div[@class="g-col-9"]/div[2]/div/div[@class="rbt-regMilPow"]',
-        'pagination': '//*[@class="pagination"]/li'
     }
 
     REGEXPS = {

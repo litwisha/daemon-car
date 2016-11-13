@@ -4,4 +4,6 @@ from .base import BaseConfig
 class LocalConfig(
     BaseConfig,
 ):
-    REDIS_PARAMS = {}
+    REDIS_PARAMS = {
+        'decode_responses': True,
+    }
