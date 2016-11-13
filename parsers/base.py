@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import ABCMeta, abstractproperty
 from functools import partial
 from logging import getLogger
 
@@ -27,13 +27,9 @@ class BaseParser(
 
         self.session = Session()
 
-    def check_filter_params(self, params):
-        """
-
-        :param params:
-        :return:
-        """
-        return params.keys() < self.FILTERS
+    @abstractproperty
+    def car_url(self):
+        pass
 
     def custom_filter(self, name, result_item):
         """
@@ -43,7 +39,6 @@ class BaseParser(
         :return: True - if car fits the filter
         """
         search_xpath = self.XPATHS[name]
-        reg_exp = self.REGEXPS[name]
 
         filter_value = self.filter_params[name]
 
@@ -52,12 +47,17 @@ class BaseParser(
                 search_xpath,
             )[0]
 
-            matched_value = reg_exp.match(filter_elem.text).group(1)
+            value = filter_elem.text
+
+            if name in self.REGEXPS:
+                reg_exp = self.REGEXPS[name]
+                value = reg_exp.match(value).group(1)
+
         except (IndexError, AttributeError):
             return False
         else:
 
-            return matched_value == str(filter_value)
+            return value == str(filter_value)
 
     @property
     def filter_rules(self):
@@ -67,7 +67,7 @@ class BaseParser(
                 name=name,
             )
             for name in self.filter_params
-        ]
+            ]
 
     def parse_response(self, response):
         root = document_fromstring(response.text)
