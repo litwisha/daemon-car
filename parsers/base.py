@@ -1,17 +1,14 @@
+import logging
 from abc import ABCMeta, abstractmethod, abstractproperty
 from datetime import date
 from functools import partial
-from logging import getLogger
-
-from requests import Session
 
 from lxml.html import document_fromstring
+from requests import Session
 
 from config import settings
 
 redis_client = settings.redis_client
-
-logger = getLogger(__file__)
 
 
 class BaseParser(
@@ -22,10 +19,12 @@ class BaseParser(
     }
 
     def __init__(self, search_name, search_url, max_pages=5, **filter_params):
+        # check if input filter params are valid
         if not filter_params.keys() < self.FILTERS:
             raise ValueError('Incorrect filter parameters')
 
         self.filter_params = filter_params
+
         self.search_name = '{parser}_{search_name}'.format(
             parser=self.NAME,
             search_name=search_name,
@@ -36,26 +35,52 @@ class BaseParser(
         self.current_page = 1
         self.max_pages = max_pages
 
+        self.logger = logging.getLogger(self.search_name)
+        self.logger.setLevel(logging.DEBUG)
+
         self.session = Session()
 
     @abstractproperty
     def car_url(self):
+        """
+        Full url with a car. Used for final results
+        :return:
+        """
         pass
 
     @abstractproperty
     def search_url(self):
+        """
+        Search url based on page number
+        :return:
+        """
         pass
 
     @abstractmethod
-    def get_car_ids(self, elements):
+    def get_car_ids(self, results):
+        """
+        Get cars ids
+        :param results: search results with a car
+        :return:
+        """
         pass
 
     @abstractmethod
     def get_pages_amount(self, root):
+        """
+        Get last page number in pagination bar.
+        :param root:
+        :return:
+        """
         pass
 
     @property
     def filter_rules(self):
+        """
+        Get filters for search results.
+        Available filters: mileage, power, color,
+        :return:
+        """
         return [
             partial(
                 self.custom_filter,
@@ -66,6 +91,10 @@ class BaseParser(
 
     @property
     def today_ads(self):
+        """
+        Cached property with cars found today.
+        :return:
+        """
         if not hasattr(self, '_today_ads'):
             key = '{search_name}_{date}'.format(
                 search_name=self.search_name,
@@ -77,6 +106,11 @@ class BaseParser(
 
     @today_ads.setter
     def today_ads(self, ads):
+        """
+        Setter for cached property with cars found today.
+        :return:
+        """
+
         key = '{search_name}_{date}'.format(
             search_name=self.search_name,
             date=date.today().strftime('%d_%m_%y')
@@ -91,6 +125,10 @@ class BaseParser(
 
     @property
     def seen_ads(self):
+        """
+        Cached property with already seen ads.
+        :return:
+        """
 
         if not hasattr(self, '_seen_ads'):
             self._seen_ads = redis_client.smembers(self.search_name)
@@ -99,6 +137,10 @@ class BaseParser(
 
     @seen_ads.setter
     def seen_ads(self, ads):
+        """
+        Setter for cached property with already seen ads.
+        :return:
+        """
         key = self.search_name
 
         new_ads = ads - self.seen_ads
@@ -138,6 +180,10 @@ class BaseParser(
             return value == str(filter_value)
 
     def request(self):
+        """
+        Send request to source website
+        :return:
+        """
         try:
             response = self.session.get(
                 self.search_url,
@@ -151,11 +197,17 @@ class BaseParser(
                     name=self.search_name,
                     code=response.status_code
                 )
-                logger.debug(msg)
+                self.logger.error(msg)
 
         except IOError as e:
-            logger.exception(e)
+            self.logger.exception(e)
+
     def parse_response(self, response):
+        """
+        Parse response and process results
+        :param response:
+        :return:
+        """
         root = document_fromstring(response.text)
 
         parsed_ads = root.xpath(
@@ -174,8 +226,16 @@ class BaseParser(
         if new_ads:
             self.seen_ads = new_ads
             self.today_ads = new_ads
+
+            self.logger.info(
+                'Parsing {page}: {new_ads} new ads found'.format(
+                    page=self.current_page,
+                    new_ads=len(new_ads),
+                )
+            )
+
         else:
-            logger.info('No new suitable ads')
+            self.logger.info('No new suitable ads')
 
         # get information about maximum amount of pages
         max_pages = self.get_pages_amount(root)
@@ -184,7 +244,10 @@ class BaseParser(
             self.max_pages = max_pages
 
     def start(self):
-
+        """
+        Startpoint for running a parser
+        :return:
+        """
         while self.current_page <= self.max_pages:
             self.request()
 
