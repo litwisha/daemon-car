@@ -1,2 +1,5 @@
+from redis import StrictRedis
+
 class BaseConfig:
-    pass
+
+    redis_client = StrictRedis(decode_responses=True)
