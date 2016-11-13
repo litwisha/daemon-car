@@ -31,6 +31,14 @@ class BaseParser(
     def car_url(self):
         pass
 
+    @property
+    def seen_ads(self):
+        pass
+
+    @seen_ads.setter
+    def seen_ads(self, ids):
+        pass
+
     def custom_filter(self, name, result_item):
         """
         Add custom filter on search results
