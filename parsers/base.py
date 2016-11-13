@@ -3,6 +3,7 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 from datetime import date
 from functools import partial
 
+from fake_useragent import UserAgent
 from lxml.html import document_fromstring
 from requests import Session
 
@@ -37,6 +38,8 @@ class BaseParser(
 
         self.logger = logging.getLogger(self.search_name)
         self.logger.setLevel(logging.DEBUG)
+
+        self.user_agent = UserAgent()
 
         self.session = Session()
 
@@ -110,12 +113,15 @@ class BaseParser(
         Setter for cached property with cars found today.
         :return:
         """
+        new_ads = ads - self.today_ads
+
+        if not new_ads:
+            return
 
         key = '{search_name}_{date}'.format(
             search_name=self.search_name,
             date=date.today().strftime('%d_%m_%y')
         )
-        new_ads = ads - self.today_ads
 
         for ad in new_ads:
             redis_client.sadd(key, ad)
@@ -141,9 +147,12 @@ class BaseParser(
         Setter for cached property with already seen ads.
         :return:
         """
-        key = self.search_name
-
         new_ads = ads - self.seen_ads
+
+        if not new_ads:
+            return
+
+        key = self.search_name
 
         for ad in new_ads:
             redis_client.sadd(key, ad)
@@ -187,10 +196,13 @@ class BaseParser(
         try:
             response = self.session.get(
                 self.search_url,
+                headers={
+                    'User-Agent': self.user_agent.random,
+                }
             )
 
             if response.status_code == 200:
-                self.parse_response(response)
+                self.parse_response(response.text)
 
             else:
                 msg = '{name} has responsed with {code}'.format(
@@ -202,13 +214,13 @@ class BaseParser(
         except IOError as e:
             self.logger.exception(e)
 
-    def parse_response(self, response):
+    def parse_response(self, html):
         """
         Parse response and process results
         :param response:
         :return:
         """
-        root = document_fromstring(response.text)
+        root = document_fromstring(html)
 
         parsed_ads = root.xpath(
             self.XPATHS['car_ads']
