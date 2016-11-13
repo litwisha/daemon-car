@@ -7,7 +7,9 @@ from requests import Session
 
 from lxml.html import document_fromstring
 
-from . import redis_client
+from config import settings
+
+redis_client = settings.redis_client
 
 logger = getLogger(__file__)
 
@@ -19,7 +21,7 @@ class BaseParser(
         'mileage', 'color', 'power',
     }
 
-    def __init__(self, search_name, search_url, **filter_params):
+    def __init__(self, search_name, search_url, max_pages=5, **filter_params):
         if not filter_params.keys() < self.FILTERS:
             raise ValueError('Incorrect filter parameters')
 
@@ -29,7 +31,10 @@ class BaseParser(
             search_name=search_name,
         )
 
-        self.search_url = search_url
+        self._search_url = search_url
+
+        self.current_page = 1
+        self.max_pages = max_pages
 
         self.session = Session()
 
@@ -37,8 +42,16 @@ class BaseParser(
     def car_url(self):
         pass
 
+    @abstractproperty
+    def search_url(self):
+        pass
+
     @abstractmethod
     def get_car_ids(self, elements):
+        pass
+
+    @abstractmethod
+    def get_pages_amount(self, root):
         pass
 
     @property
@@ -46,7 +59,7 @@ class BaseParser(
         return [
             partial(
                 self.custom_filter,
-                name=name,
+                filter_name=name,
             )
             for name in self.filter_params
         ]
@@ -96,16 +109,16 @@ class BaseParser(
         # invalidate cached property
         del self._seen_ads
 
-    def custom_filter(self, name, result_item):
+    def custom_filter(self, result_item, filter_name):
         """
         Add custom filter on search results
         :param name: filter name
         :param result_item: xpath element of car to filter
         :return: True - if car fits the filter
         """
-        search_xpath = self.XPATHS[name]
+        search_xpath = self.XPATHS[filter_name]
 
-        filter_value = self.filter_params[name]
+        filter_value = self.filter_params[filter_name]
 
         try:
             filter_elem = result_item.xpath(
@@ -114,8 +127,8 @@ class BaseParser(
 
             value = filter_elem.text
 
-            if name in self.REGEXPS:
-                reg_exp = self.REGEXPS[name]
+            if filter_name in self.REGEXPS:
+                reg_exp = self.REGEXPS[filter_name]
                 value = reg_exp.match(value).group(1)
 
         except (IndexError, AttributeError):
@@ -124,6 +137,24 @@ class BaseParser(
 
             return value == str(filter_value)
 
+    def request(self):
+        try:
+            response = self.session.get(
+                self.search_url,
+            )
+
+            if response.status_code == 200:
+                self.parse_response(response)
+
+            else:
+                msg = '{name} has responsed with {code}'.format(
+                    name=self.search_name,
+                    code=response.status_code
+                )
+                logger.debug(msg)
+
+        except IOError as e:
+            logger.exception(e)
     def parse_response(self, response):
         root = document_fromstring(response.text)
 
@@ -146,21 +177,15 @@ class BaseParser(
         else:
             logger.info('No new suitable ads')
 
-    def request(self):
-        try:
-            response = self.session.get(
-                self.search_url,
-            )
+        # get information about maximum amount of pages
+        max_pages = self.get_pages_amount(root)
 
-            if response.status_code == 200:
-                self.parse_response(response)
-            else:
-                msg = '{name} has responsed with {code}'.format(
-                    name=self.search_name,
-                    code=str(response.status_code)
-                )
-                logger.debug(msg)
+        if max_pages and max_pages < self.max_pages:
+            self.max_pages = max_pages
 
-        except IOError as e:
-            logger.exception(e)
+    def start(self):
 
+        while self.current_page <= self.max_pages:
+            self.request()
+
+            self.current_page += 1

@@ -1,3 +1,1 @@
-from redis import StrictRedis
-
-redis_client = StrictRedis()
+from .mobile import MobileDeParser
